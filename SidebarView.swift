@@ -59,7 +59,7 @@ struct SidebarView: View {
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) { // Add swipe to delete
                          Button(role: .destructive) {
                              // Find the index of the session to delete
-                             if let indexToDelete = historyManager.sessions.firstIndex(where: { $0.id == session.id }) {
+                             if let _ = historyManager.sessions.firstIndex(where: { $0.id == session.id }) { // Use _ as index is unused
                                  historyManager.deleteSession(withId: session.id)
                                  // If the deleted session was the current one, switch to the newest or create one
                                  if currentSession.id == session.id {

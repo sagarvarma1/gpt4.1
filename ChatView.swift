@@ -6,67 +6,47 @@ import SwiftUI
 
 struct ChatView: View {
     // Shared History Manager
-    @StateObject private var historyManager = HistoryManager()
+    @StateObject private var historyManager = HistoryManager() // Standard initialization
     
-    // Current state
-    @State private var currentSession: ChatSession
+    // Current state - Initialize with a temporary default
+    @State private var currentSession: ChatSession 
     @State private var currentMessage: String = ""
-    @State private var showingHistorySheet = false // State to control history sheet
+    @State private var showingHistorySheet = false // State to control history sheet - RESTORED
     // @State private var showSidebar: Bool = false // TEMP DISABLED
     
     let provider: String
 
-    // Initializer loads the latest session or creates a new one
+    // Initializer: Just set provider and a placeholder session
     init(provider: String) {
         self.provider = provider
-        
-        let manager = HistoryManager() // Temporary instance to load/create initial session
-        let initialSession: ChatSession
-        
-        if let latestSession = manager.sessions.first {
-            initialSession = latestSession
-            print("Loaded latest session: \(latestSession.id)")
-        } else {
-            initialSession = manager.createNewSession(provider: provider)
-            print("No existing sessions, created new one: \(initialSession.id)")
-        }
-        
-        // Initialize the state AFTER self is available
-        _currentSession = State(initialValue: initialSession)
-        // Initialize the StateObject using the same temporary manager instance for consistency 
-        // (though it will load sessions itself again, which is slightly redundant but harmless here)
-        _historyManager = StateObject(wrappedValue: manager)
+        // Initialize state with a temporary session. .onAppear will load the correct one.
+        _currentSession = State(initialValue: ChatSession(messages: [ChatMessage(role: .assistant, content: "Loading...")], provider: provider))
     }
 
     var body: some View {
+        // let _ = print("DEBUG: ChatView body re-evaluated. Session ID: \\(currentSession.id), Message Count: \\(currentSession.messages.count)") // DEBUG - REMOVED
         // Use ZStack for layering sidebar and main content
         ZStack {
             // Main Chat View Content
             VStack(spacing: 0) {
+                // DEBUG Text showing message count
+                Text("Messages: \(currentSession.messages.count) - Session: \(currentSession.id.uuidString.prefix(8))")
+                    .font(.caption)
+                    .padding(4)
+                    .background(Color.gray.opacity(0.2))
+                    .cornerRadius(4)
+                
                 ScrollView {
-                    ScrollViewReader { scrollViewProxy in
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(currentSession.messages) { message in
-                                MessageView(message: message)
-                                    .id(message.id)
-                            }
-                        }
-                        .padding(.horizontal)
-                        .padding(.top)
-                        .onChange(of: currentSession.messages.count) { oldValue, newValue in
-                            if newValue > oldValue {
-                                scrollToBottom(scrollViewProxy)
-                            }
-                        }
-                        // Scroll to bottom when session changes
-                        .onChange(of: currentSession.id) { _, _ in
-                            // Needs slight delay for view updates
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { 
-                                scrollToBottom(scrollViewProxy)
-                            }
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(currentSession.messages) { message in
+                            MessageView(message: message)
+                                .id(message.id) // Ensure each message has a stable identity
                         }
                     }
+                    .padding(.horizontal)
+                    .padding(.top)
                 }
+                .id(currentSession.id) // Force ScrollView to recreate when session changes
                 .background(Color(.systemBackground))
                 .onTapGesture {
                     hideKeyboard()
@@ -109,10 +89,10 @@ struct ChatView: View {
                 // Hamburger button toggles sidebar - RESTORED (but action is empty for now)
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button { 
-                        // Action is intentionally empty for now - UPDATED
+                        // Action is intentionally empty for now - REVERTED - UPDATED AGAIN
                          // print("DEBUG: History/Hamburger button pressed (no action)") // Optional debug print
-                         hideKeyboard() // Dismiss keyboard before showing sheet
-                         showingHistorySheet = true // Set state to true to show the sheet
+                         hideKeyboard() // Dismiss keyboard before showing sheet - RESTORED
+                         showingHistorySheet = true // Set state to true to show the sheet - RESTORED
                     } label: {
                         Image(systemName: "line.3.horizontal")
                             .foregroundColor(.black)
@@ -127,9 +107,16 @@ struct ChatView: View {
                 } 
             }
             .navigationBarBackButtonHidden(true)
-            .onAppear {
-                 // Now initialization handles loading the latest session
-                 print("ChatView appeared with session ID: \(currentSession.id)")
+            .onAppear { // Load initial session here
+                 if let loadedSession = historyManager.sessions.first {
+                    currentSession = loadedSession
+                    print("ChatView onAppear loaded session: \(loadedSession.id.uuidString)")
+                 } else {
+                    currentSession = historyManager.createNewSession(provider: provider)
+                    print("ChatView onAppear created new session: \(currentSession.id.uuidString)")
+                 }
+                 // Ensure historyManager reloads if needed (though it should load on init)
+                 // historyManager.loadSessions() 
             }
             // Dimming overlay when sidebar is shown - TEMP DISABLED - REMOVED
             /* .overlay(
@@ -161,7 +148,7 @@ struct ChatView: View {
         }
         // .animation(.easeInOut, value: showSidebar) // Animate sidebar appearance/disappearance - TEMP DISABLED (showSidebar removed) - REMOVED
         // .statusBar(hidden: false) // REMOVED: Revert status bar change
-        .sheet(isPresented: $showingHistorySheet) { // Add sheet modifier
+        .sheet(isPresented: $showingHistorySheet) { // Add sheet modifier - RESTORED
             HistorySheetView(historyManager: historyManager, 
                              currentSession: $currentSession,
                              isPresented: $showingHistorySheet)
@@ -171,28 +158,24 @@ struct ChatView: View {
     // Function to start a new chat session (used by button & sidebar)
     func startNewChat() {
         print("Starting new chat...")
-        // Save the current session *if* it has messages AND it exists in history
-        if !currentSession.messages.isEmpty && historyManager.sessions.contains(where: { $0.id == currentSession.id }) {
-            print("Saving previous session (ID: \(currentSession.id)) before starting new one.")
+        // Save the current session *if* it has messages AND it exists in history - SIMPLIFIED/REMOVED
+        /* if !currentSession.messages.isEmpty && historyManager.sessions.contains(where: { $0.id == currentSession.id }) {
+            print("Saving previous session (ID: \\(currentSession.id)) before starting new one.")
             // No need to call save explicitly, it's saved on message add/bot response
         } else if !currentSession.messages.isEmpty {
-             print("Saving newly started session (ID: \(currentSession.id)) before starting new one.")
-             historyManager.saveSession(currentSession)
+             print("Saving newly started session (ID: \\(currentSession.id)) before starting new one.")
+             historyManager.saveSession(currentSession) // Potentially problematic save call?
         } else {
             print("Previous session was empty or not saved yet, not saving.")
-        }
+        } */
         
         // Create and set the new session
         let newSession = historyManager.createNewSession(provider: provider)
-        currentSession = newSession
-        print("Created and set new session ID: \(currentSession.id)")
-        
+        currentSession = newSession // This is the key state update
+        print("Created and set new session ID: \(newSession.id.uuidString)")
+
         // Clear the input field
         currentMessage = ""
-        // Hide sidebar if it was open - REMOVED
-        // if showSidebar {
-        //     withAnimation { showSidebar = false }
-        // }
     }
 
     // Updated sendMessage
@@ -208,15 +191,15 @@ struct ChatView: View {
         currentSession.messages.append(userMessage)
         // print("DEBUG: Appended userMessage. currentSession message count: \\(currentSession.messages.count)") // DEBUG REMOVED
         
-        let userInput = currentMessage 
+        let userInput = currentMessage // This is used later in the bot response, so we keep it
         currentMessage = ""
         hideKeyboard()
         
         // print("DEBUG: Attempting to save session ID: \\(currentSession.id)") // DEBUG REMOVED
-        historyManager.saveSession(currentSession)
+        historyManager.saveSession(currentSession) // RESTORED
         // print("DEBUG: Saved session after user message. Session ID: \\(currentSession.id)") // DEBUG REMOVED
 
-        // Simulate bot response
+        // Simulate bot response - RESTORED
         // print("DEBUG: Dispatching bot response simulation...") // DEBUG REMOVED
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             // print("DEBUG: Inside bot response dispatch block.") // DEBUG REMOVED
@@ -231,12 +214,12 @@ struct ChatView: View {
                 currentSession.messages.append(botMessage)
                  // print("DEBUG: Appended botMessage. currentSession message count: \\(currentSession.messages.count)") // DEBUG REMOVED
                 // print("DEBUG: Attempting to save session after bot message...") // DEBUG REMOVED
-                historyManager.saveSession(currentSession)
+                historyManager.saveSession(currentSession) // RESTORED
                 // print("DEBUG: Saved session after bot message. Session ID: \\(currentSession.id)") // DEBUG REMOVED
             } else {
                  // print("DEBUG: Session changed before bot could reply. Discarding response for session associated with user message ID \\(userMessage.id). Current session ID: \\(currentSession.id)") // DEBUG REMOVED
             }
-        }
+        } 
     }
 
     // Scroll helper (unchanged)
